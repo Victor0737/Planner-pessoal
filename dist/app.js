@@ -1,6 +1,7 @@
 import { DEFAULT_WEIGHTS, DAYS, uid, dateKey, parseDate, addDays, weekDates, secondsOn, stats, duration, activeSegments, sessionSeconds, emptyData, validateData, validDate } from './core.js';
 
 const KEY = 'compasso-data-v1';
+const THEME_KEY = 'compasso-theme';
 const $ = s => document.querySelector(s);
 const esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const icons = {
@@ -19,6 +20,8 @@ const icons = {
   pause: '<path d="M8 5v14M16 5v14"/>',
   reset: '<path d="M3 10a9 9 0 1 1 2 8M3 4v6h6"/>',
   archive: '<path d="M4 9h16v12H4zM3 3h18v6H3zM9 13h6"/>',
+  moon: '<path d="M20.5 13A9 9 0 0 1 11 3.5 9 9 0 1 0 20.5 13Z"/>',
+  sun: '<circle cx="12" cy="12" r="4"/><path d="M12 2v2m0 16v2M2 12h2m16 0h2M5 5l1.5 1.5m11 11L19 19M5 19l1.5-1.5m11-11L19 5"/>',
 };
 const icon = name => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${icons[name] || icons.clock}</svg>`;
 let storageError = '', corruptRaw = '';
@@ -50,6 +53,15 @@ const progress = (done, goal) => goal > 0 ? Math.min(100, done / goal * 100) : 0
 const getTask = id => data.tasks.find(t => t.id === id);
 const colorDot = color => `<span class="dot" style="--task:${color}"></span>`;
 const button = (action, label, cls = '', attr = '') => `<button type="button" class="${cls}" data-action="${action}" ${attr}>${label}</button>`;
+function themeButtonContent() {
+  return `${icon(document.documentElement.dataset.theme === 'dark' ? 'sun' : 'moon')} Tema escuro`;
+}
+function applyTheme(theme) {
+  const dark = theme === 'dark';
+  document.documentElement.dataset.theme = dark ? 'dark' : 'light';
+  const control = $('[data-action="toggle-theme"]');
+  if (control) { control.innerHTML = themeButtonContent(); control.setAttribute('aria-pressed', String(dark)); }
+}
 function render() {
   const today = dateKey(), dates = weekDates(today);
   const tasks = data.tasks.filter(t => !t.archived);
@@ -65,6 +77,7 @@ function render() {
     </nav>
     <div class="sidebar-week"><span>Esta semana</span><strong>${duration(done)} <small>/ ${duration(goal)}</small></strong><div class="progress"><span style="width:${progress(done, goal)}%"></span></div><p>Segunda a domingo</p></div>
     <div class="sidebar-bottom">
+      ${button('toggle-theme', themeButtonContent(), 'nav-item', `aria-label="Tema escuro" title="Ativar ou desativar tema escuro" aria-pressed="${document.documentElement.dataset.theme === 'dark'}"`)}
       ${button('export', `${icon('download')} Exportar backup`, 'nav-item')}
       ${button('import', `${icon('upload')} Restaurar backup`, 'nav-item')}
       ${button('help', `${icon('clock')} Como funciona`, 'nav-item')}
@@ -87,8 +100,8 @@ function dashboard(tasks, values, today, dates) {
   const done = values.reduce((n, s) => n + s.done, 0);
   const remaining = values.reduce((n, s) => n + s.remaining, 0);
   const totalGoal = values.reduce((n, s) => n + s.goal, 0);
-  const weekActual = dates.map(d => tasks.reduce((n, t) => n + secondsOn(data, t.id, d), 0));
-  const weekPlanned = dates.map((d, i) => values.reduce((n, s) => n + (d < today ? s.actual[i] : Math.max(s.actual[i], s.targets[i])), 0));
+  const weekActual = dates.map((d, i) => values.reduce((n, s) => n + s.actual[i], 0));
+  const weekPlanned = dates.map((d, i) => d < today ? 0 : values.reduce((n, s) => n + s.targets[i], 0));
   const max = Math.max(3600, ...weekPlanned, ...weekActual);
   return `<header class="page-heading"><div><div class="eyebrow">${esc(longDate(today))}</div><h1>Visão da semana<span>.</span></h1></div>${button('new-task', `${icon('plus')} Nova tarefa`, 'button primary')}</header>
   <section class="summary" aria-label="Resumo da semana">
@@ -96,8 +109,19 @@ function dashboard(tasks, values, today, dates) {
     <div class="metric"><span>Feito na semana</span><strong>${duration(done)}<em>/ ${duration(totalGoal)}</em></strong><small>${totalGoal ? `${Math.round(done / totalGoal * 100)}% da meta semanal` : 'Suas sessões aparecem aqui'}</small></div>
     <div class="metric"><span>Restante na semana</span><strong>${duration(remaining)}</strong><small>até domingo, ${shortDate(dates[6])}</small></div>
   </section>
-  <section class="week-panel" aria-labelledby="week-title"><div class="section-top"><div><h2 id="week-title">Seu ritmo</h2><p>${shortDate(dates[0])} — ${shortDate(dates[6])}</p></div><div class="chart-legend"><span><i class="legend-done"></i>Feito</span><span><i class="legend-plan"></i>Planejado</span></div></div>
-    <div class="week-chart">${dates.map((d, i) => `<button class="week-day ${d === today ? 'is-today' : ''}" data-action="day" data-date="${d}" aria-label="${esc(longDate(d))}: feito ${duration(weekActual[i])}, planejado ${duration(weekPlanned[i])}"><span class="chart-value">${duration(weekPlanned[i])}</span><span class="bar-track"><span class="bar-plan" style="height:${weekPlanned[i] / max * 100}%"><span class="bar-done" style="height:${weekPlanned[i] ? Math.min(100, weekActual[i] / weekPlanned[i] * 100) : 0}%"></span></span></span><span class="day-label">${DAYS[i]} <small>${parseDate(d).getDate()}</small></span>${d === today ? '<span class="today-caption">Hoje</span>' : '<span class="today-caption">&nbsp;</span>'}</button>`).join('')}</div>
+  <section class="week-panel" aria-labelledby="week-title"><div class="section-top"><div><h2 id="week-title">Seu ritmo</h2><p>${shortDate(dates[0])} — ${shortDate(dates[6])}</p></div><div class="chart-legend"><span><i class="legend-plan"></i>Planejado</span><span><i class="legend-done"></i>Feito</span></div></div>
+    <div class="week-chart">${dates.map((d, i) => {
+      const past = d < today;
+      const summary = `${longDate(d)}: ${past ? 'planejamento passado não armazenado' : `planejado ${duration(weekPlanned[i])}`}, feito ${duration(weekActual[i])}`;
+      const breakdown = tasks.map((t, j) => `${t.name}: ${past ? '' : `planejado ${duration(values[j].targets[i])}, `}feito ${duration(values[j].actual[i])}`).join('; ');
+      const stack = (kind, total) => `<span class="bar-stack ${kind}" style="height:${total / max * 100}%">${tasks.map((t, j) => {
+        const seconds = kind === 'planned' ? values[j].targets[i] : values[j].actual[i];
+        return seconds > 0 && total > 0 ? `<span class="bar-segment" style="--task:${t.color};height:${seconds / total * 100}%"></span>` : '';
+      }).join('')}</span>`;
+      return `<button class="week-day ${d === today ? 'is-today' : ''}" data-action="rhythm-day" data-date="${d}" aria-label="${esc(`${summary}. ${breakdown}. Ver detalhes`)}" title="${esc(`${summary}\n${breakdown}`)}"><span class="chart-value" aria-hidden="true">${duration(past ? weekActual[i] : weekPlanned[i])}</span><span class="bar-track" aria-hidden="true">${past ? '' : stack('planned', weekPlanned[i])}${stack('actual', weekActual[i])}</span><span class="bar-labels" aria-hidden="true">${past ? '<span>F</span>' : '<span>P</span><span>F</span>'}</span><span class="day-label">${DAYS[i]} <small>${parseDate(d).getDate()}</small></span><span class="today-caption">${d === today ? 'Hoje' : '&nbsp;'}</span></button>`;
+    }).join('')}</div>
+    ${tasks.length ? `<ul class="rhythm-tasks" aria-label="Cores das tarefas">${tasks.map(t => `<li>${colorDot(t.color)}<span>${esc(t.name)}</span></li>`).join('')}</ul>` : ''}
+    <p class="chart-help">P: planejado · F: feito. O valor acima indica o planejado; nos dias passados, apenas o feito. Toque ou clique em um dia para comparar por tarefa.</p>
   </section>
   <section aria-labelledby="tasks-title"><div class="section-top task-heading"><div class="heading-inline"><h2 id="tasks-title">Suas tarefas</h2><span class="count">${tasks.length}</span></div><div class="task-heading-actions">${data.tasks.some(t => t.archived) ? button('toggle-archive', showArchived ? 'Ocultar arquivadas' : 'Ver arquivadas', 'text-button') : ''}<span class="muted">O longo prazo começa aqui.</span></div></div>
     ${tasks.length ? `<div class="task-grid">${tasks.map((t, i) => taskCard(t, values[i])).join('')}</div>` : `<div class="empty-state"><span class="empty-mark">${icon('plus')}</span><h3>Abra espaço para o que importa.</h3><p>Adicione uma tarefa de longo prazo e escolha quantas horas quer dedicar a ela por semana.</p>${button('new-task', `${icon('plus')} Criar minha primeira tarefa`, 'button primary')}</div>`}
@@ -212,6 +236,13 @@ function taskDetails(t) {
   const s = stats(data, t), today = dateKey();
   showModal(esc(t.name), `<div class="detail-summary">${colorDot(t.color)}${duration(s.goal)} por semana · ${t.mode === 'auto' ? 'Distribuição automática' : 'Horas fixas'}</div><div class="day-table"><div class="table-head"><span>Dia</span><span>Feito</span><span>Falta</span></div>${s.dates.map((d, i) => `<div class="${d === today ? 'table-today' : ''}"><span>${DAYS[i]} ${shortDate(d)}${d === today ? ' · hoje' : ''}</span><span>${duration(s.actual[i])}</span><span>${d < today ? '—' : duration(Math.min(s.remaining, Math.max(0, s.targets[i] - s.actual[i])))}</span></div>`).join('')}</div><p class="field-help">Histórico: ${duration(s.historical)}. ${t.mode === 'auto' ? 'O saldo é redistribuído a cada novo dia. A meta de hoje diminui conforme você conclui sessões.' : 'As metas diárias permanecem fixas, mesmo se você não cumprir um dia.'}</p><div class="modal-actions">${button('enable-task-edit', `${icon('edit')} Entrar no modo de edição`, 'button subtle', `data-id="${t.id}"`)}${button('start-focus', `${icon('play')} Focar`, 'button primary', `data-id="${t.id}"`)}</div>`);
 }
+function rhythmDetails(date) {
+  const today = dateKey(), index = weekDates(today).indexOf(date);
+  if (index < 0) { dayDetails(date); return; }
+  const past = date < today;
+  const rows = data.tasks.filter(t => !t.archived).map(t => ({ task: t, value: stats(data, t, today) }));
+  showModal(esc(longDate(date)), `<p class="field-help">${past ? 'Dias passados mostram apenas o tempo feito. As metas anteriores não ficam armazenadas.' : 'Planejado é a meta do dia. Feito inclui todo o tempo registrado, mesmo acima da meta.'}</p><div class="day-table rhythm-table"><div class="table-head"><span>Tarefa</span><span>Planejado</span><span>Feito</span></div>${rows.map(({ task, value }) => `<div><span>${colorDot(task.color)}${esc(task.name)}</span><span>${past ? '—' : duration(value.targets[index], true)}</span><span>${duration(value.actual[index], true)}</span></div>`).join('')}</div>${rows.length ? '' : '<p class="empty-day">Adicione uma tarefa para planejar sua semana.</p>'}<p class="field-help">Tarefas ativas · tempos em horas:minutos:segundos.</p><div class="modal-actions">${button('day', 'Ver registros do dia', 'button subtle', `data-date="${date}"`)}</div>`, true);
+}
 function dayDetails(date) {
   const entries = data.entries.filter(e => e.date === date);
   const total = entries.reduce((n, e) => n + e.seconds, 0);
@@ -269,6 +300,13 @@ document.addEventListener('click', event => {
   const action = target.dataset.action, id = target.dataset.id, date = target.dataset.date;
   if (target.tagName === 'A') event.preventDefault();
   switch (action) {
+    case 'toggle-theme': {
+      const theme = document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark';
+      applyTheme(theme);
+      try { localStorage.setItem(THEME_KEY, theme); } catch { toast('Tema aplicado. Não foi possível salvar a preferência neste navegador.'); }
+      break;
+    }
+    case 'rhythm-day': rhythmDetails(date); break;
     case 'dashboard': case 'calendar': view = action; render(); break;
     case 'edit-mode': editing = !editing; render(); break;
     case 'new-task': taskSettings(); break;
@@ -323,6 +361,7 @@ document.addEventListener('keydown', event => {
   }
 });
 window.addEventListener('storage', event => {
+  if (event.key === THEME_KEY || event.key === null) applyTheme(event.key === THEME_KEY ? event.newValue : 'light');
   if (event.key !== KEY) return;
   try { data = readData(); storageError = ''; if (!data.session) focusOpen = false; if ($('#modal').open) { closeModal(); toast('Dados atualizados em outra aba. Abra a edição novamente.'); } render(); }
   catch (e) { storageError = e.message; render(); }
