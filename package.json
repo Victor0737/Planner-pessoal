@@ -1,0 +1,9 @@
+{
+  "name": "compasso-planner",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Planejamento semanal pessoal e registro de foco, sem dependências externas.",
+  "scripts": { "dev": "node server.mjs", "start": "node server.mjs", "test": "node --test tests/*.test.mjs", "check": "node --check dist/app.js && node --check dist/core.js && node --check server.mjs" },
+  "engines": { "node": ">=20" }
+}
