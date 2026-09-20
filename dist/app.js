@@ -93,7 +93,7 @@ function render() {
   </main>
   ${data.session && !focusOpen ? `<button class="active-session" data-action="open-focus">${icon('clock')}<span>${esc(getTask(data.session.taskId)?.name || '')}</span><strong id="mini-timer">${duration(sessionSeconds(data.session), true)}</strong> Retomar sessão</button>` : ''}
   ${focusOpen && data.session ? focusScreen() : ''}`;
-  updateClock();
+  updateClock(true);
 }
 function dashboard(tasks, values, today, dates) {
   const remainingToday = values.reduce((n, s) => n + s.dailyRemaining, 0);
@@ -101,27 +101,28 @@ function dashboard(tasks, values, today, dates) {
   const remaining = values.reduce((n, s) => n + s.remaining, 0);
   const totalGoal = values.reduce((n, s) => n + s.goal, 0);
   const weekActual = dates.map((d, i) => values.reduce((n, s) => n + s.actual[i], 0));
-  const weekPlanned = dates.map((d, i) => d < today ? 0 : values.reduce((n, s) => n + s.targets[i], 0));
-  const max = Math.max(3600, ...weekPlanned, ...weekActual);
+  const weekPlanned = dates.map((d, i) => d < today ? 0 : values.reduce((n, s) => n + (d === today ? s.dailyRemaining : s.targets[i]), 0));
+  // A escala usa a meta inteira: reduzir o saldo não pode ampliar a barra novamente.
+  const max = Math.max(3600, ...dates.map((d, i) => values.reduce((n, s) => n + s.targets[i], 0)), ...weekActual);
   return `<header class="page-heading"><div><div class="eyebrow">${esc(longDate(today))}</div><h1>Visão da semana<span>.</span></h1></div>${button('new-task', `${icon('plus')} Nova tarefa`, 'button primary')}</header>
   <section class="summary" aria-label="Resumo da semana">
     <div class="metric"><span>Para hoje</span><strong>${duration(remainingToday)}</strong><small>de dedicação restante</small></div>
     <div class="metric"><span>Feito na semana</span><strong>${duration(done)}<em>/ ${duration(totalGoal)}</em></strong><small>${totalGoal ? `${Math.round(done / totalGoal * 100)}% da meta semanal` : 'Suas sessões aparecem aqui'}</small></div>
     <div class="metric"><span>Restante na semana</span><strong>${duration(remaining)}</strong><small>até domingo, ${shortDate(dates[6])}</small></div>
   </section>
-  <section class="week-panel" aria-labelledby="week-title"><div class="section-top"><div><h2 id="week-title">Seu ritmo</h2><p>${shortDate(dates[0])} — ${shortDate(dates[6])}</p></div><div class="chart-legend"><span><i class="legend-plan"></i>Planejado</span><span><i class="legend-done"></i>Feito</span></div></div>
+  <section class="week-panel" aria-labelledby="week-title"><div class="section-top"><div><h2 id="week-title">Seu ritmo</h2><p>${shortDate(dates[0])} — ${shortDate(dates[6])}</p></div><div class="chart-legend"><span><i class="legend-plan"></i>Planejado / restante</span><span><i class="legend-done"></i>Feito</span></div></div>
     <div class="week-chart">${dates.map((d, i) => {
       const past = d < today;
       const summary = `${longDate(d)}: ${past ? 'planejamento passado não armazenado' : `planejado ${duration(weekPlanned[i])}`}, feito ${duration(weekActual[i])}`;
       const breakdown = tasks.map((t, j) => `${t.name}: ${past ? '' : `planejado ${duration(values[j].targets[i])}, `}feito ${duration(values[j].actual[i])}`).join('; ');
       const stack = (kind, total) => `<span class="bar-stack ${kind}" style="height:${total / max * 100}%">${tasks.map((t, j) => {
-        const seconds = kind === 'planned' ? values[j].targets[i] : values[j].actual[i];
-        return seconds > 0 && total > 0 ? `<span class="bar-segment" style="--task:${t.color};height:${seconds / total * 100}%"></span>` : '';
+        const seconds = kind === 'planned' ? (d === today ? values[j].dailyRemaining : values[j].targets[i]) : values[j].actual[i];
+        return (seconds > 0 && total > 0) || (kind === 'planned' && d === today) ? `<span class="bar-segment" data-task-id="${t.id}" style="--task:${t.color};height:${total ? seconds / total * 100 : 0}%"></span>` : '';
       }).join('')}</span>`;
-      return `<button class="week-day ${d === today ? 'is-today' : ''}" data-action="rhythm-day" data-date="${d}" aria-label="${esc(`${summary}. ${breakdown}. Ver detalhes`)}" title="${esc(`${summary}\n${breakdown}`)}"><span class="chart-value" aria-hidden="true">${duration(past ? weekActual[i] : weekPlanned[i])}</span><span class="bar-track" aria-hidden="true">${past ? '' : stack('planned', weekPlanned[i])}${stack('actual', weekActual[i])}</span><span class="bar-labels" aria-hidden="true">${past ? '<span>F</span>' : '<span>P</span><span>F</span>'}</span><span class="day-label">${DAYS[i]} <small>${parseDate(d).getDate()}</small></span><span class="today-caption">${d === today ? 'Hoje' : '&nbsp;'}</span></button>`;
+      return `<button class="week-day ${d === today ? 'is-today' : ''}" data-action="rhythm-day" data-date="${d}" data-scale="${max}" aria-label="${esc(`${summary}. ${breakdown}. Ver detalhes`)}" title="${esc(`${summary}\n${breakdown}`)}"><span class="chart-value" aria-hidden="true">${duration(past ? weekActual[i] : weekPlanned[i])}</span><span class="bar-track" aria-hidden="true">${past ? '' : stack('planned', weekPlanned[i])}${stack('actual', weekActual[i])}</span><span class="bar-labels" aria-hidden="true">${past ? '<span>F</span>' : `<span>${d === today ? 'R' : 'P'}</span><span>F</span>`}</span><span class="day-label">${DAYS[i]} <small>${parseDate(d).getDate()}</small></span><span class="today-caption">${d === today ? 'Hoje' : '&nbsp;'}</span></button>`;
     }).join('')}</div>
     ${tasks.length ? `<ul class="rhythm-tasks" aria-label="Cores das tarefas">${tasks.map(t => `<li>${colorDot(t.color)}<span>${esc(t.name)}</span></li>`).join('')}</ul>` : ''}
-    <p class="chart-help">P: planejado · F: feito. O valor acima indica o planejado; nos dias passados, apenas o feito. Toque ou clique em um dia para comparar por tarefa.</p>
+    <p class="chart-help">Hoje, R mostra o restante e diminui com o cronômetro. P: planejado nos próximos dias · F: feito e salvo. A sessão em andamento só é salva ao terminar. Toque ou clique em um dia para comparar por tarefa.</p>
   </section>
   <section aria-labelledby="tasks-title"><div class="section-top task-heading"><div class="heading-inline"><h2 id="tasks-title">Suas tarefas</h2><span class="count">${tasks.length}</span></div><div class="task-heading-actions">${data.tasks.some(t => t.archived) ? button('toggle-archive', showArchived ? 'Ocultar arquivadas' : 'Ver arquivadas', 'text-button') : ''}<span class="muted">O longo prazo começa aqui.</span></div></div>
     ${tasks.length ? `<div class="task-grid">${tasks.map((t, i) => taskCard(t, values[i])).join('')}</div>` : `<div class="empty-state"><span class="empty-mark">${icon('plus')}</span><h3>Abra espaço para o que importa.</h3><p>Adicione uma tarefa de longo prazo e escolha quantas horas quer dedicar a ela por semana.</p>${button('new-task', `${icon('plus')} Criar minha primeira tarefa`, 'button primary')}</div>`}
@@ -163,7 +164,27 @@ function focusScreen() {
   const t = getTask(data.session.taskId), s = stats(data, t);
   return `<section class="focus-screen" role="dialog" aria-modal="true" aria-labelledby="focus-title"><header><span class="brand small-brand">compasso.</span>${button('minimize-focus', 'Voltar ao painel', 'button subtle')}</header><div class="focus-center"><span class="focus-kicker">UMA COISA DE CADA VEZ</span><h1 id="focus-title">${colorDot(t.color)}${esc(t.name)}</h1><div class="timer" id="timer" role="timer" aria-live="off">${duration(sessionSeconds(data.session), true)}</div><p class="timer-state" id="timer-state">${data.session.startedAt === null ? 'Sessão pausada' : 'Seu tempo está contando'}</p><div class="focus-progress"><span>Restante para hoje</span><strong id="focus-remaining">${duration(Math.max(0, s.dailyRemaining - sessionSeconds(data.session)))}</strong></div><div class="timer-controls">${button('pause-focus', `${icon(data.session.startedAt === null ? 'play' : 'pause')} ${data.session.startedAt === null ? 'Continuar' : 'Pausar'}`, 'button timer-secondary')}${button('finish-focus', `${icon('check')} Terminar sessão`, 'button primary')}</div><div class="timer-options">${button('restart-focus', `${icon('reset')} Reiniciar`, 'text-button')}${button('discard-focus', 'Descartar sessão', 'text-button')}</div><p class="focus-note">O tempo entra no histórico quando você termina a sessão.<br>O cronômetro continua ao trocar de aba ou fechar esta tela.</p></div><div class="focus-foot">SEM PRESSA. COM CONSTÂNCIA.</div></section>`;
 }
-function updateClock() {
+function todayRhythm(today = dateKey()) {
+  // Prévia somente visual, inclusive para sessões que atravessam a meia-noite.
+  const segments = activeSegments(data.session);
+  const preview = segments.length ? { ...data, entries: [...data.entries, ...segments.map(s => ({ ...s, taskId: data.session.taskId }))] } : data;
+  return data.tasks.filter(t => !t.archived).map(task => ({ task, remaining: stats(preview, task, today).dailyRemaining, done: secondsOn(data, task.id, today) }));
+}
+function updateTodayRhythm() {
+  const day = $('.week-day.is-today');
+  if (!day) return;
+  const rows = todayRhythm(), remaining = rows.reduce((n, row) => n + row.remaining, 0);
+  const stack = day.querySelector('.planned');
+  stack.style.height = `${remaining / Number(day.dataset.scale) * 100}%`;
+  for (const row of rows) stack.querySelector(`[data-task-id="${row.task.id}"]`).style.height = `${remaining ? row.remaining / remaining * 100 : 0}%`;
+  day.querySelector('.chart-value').textContent = duration(remaining);
+  const summary = `${longDate(day.dataset.date)}: restante ${duration(remaining)}, feito e salvo ${duration(rows.reduce((n, row) => n + row.done, 0))}`;
+  const breakdown = rows.map(row => `${row.task.name}: restante ${duration(row.remaining)}, feito e salvo ${duration(row.done)}`).join('; ');
+  day.setAttribute('aria-label', `${summary}. ${breakdown}. Ver detalhes`);
+  day.title = `${summary}\n${breakdown}`;
+}
+function updateClock(refreshRhythm = false) {
+  if (data.session || refreshRhythm) updateTodayRhythm();
   if (!data.session) return;
   const elapsed = sessionSeconds(data.session);
   if ($('#timer')) $('#timer').textContent = duration(elapsed, true);
@@ -240,8 +261,9 @@ function rhythmDetails(date) {
   const today = dateKey(), index = weekDates(today).indexOf(date);
   if (index < 0) { dayDetails(date); return; }
   const past = date < today;
+  const current = date === today, live = current ? todayRhythm(today) : [];
   const rows = data.tasks.filter(t => !t.archived).map(t => ({ task: t, value: stats(data, t, today) }));
-  showModal(esc(longDate(date)), `<p class="field-help">${past ? 'Dias passados mostram apenas o tempo feito. As metas anteriores não ficam armazenadas.' : 'Planejado é a meta do dia. Feito inclui todo o tempo registrado, mesmo acima da meta.'}</p><div class="day-table rhythm-table"><div class="table-head"><span>Tarefa</span><span>Planejado</span><span>Feito</span></div>${rows.map(({ task, value }) => `<div><span>${colorDot(task.color)}${esc(task.name)}</span><span>${past ? '—' : duration(value.targets[index], true)}</span><span>${duration(value.actual[index], true)}</span></div>`).join('')}</div>${rows.length ? '' : '<p class="empty-day">Adicione uma tarefa para planejar sua semana.</p>'}<p class="field-help">Tarefas ativas · tempos em horas:minutos:segundos.</p><div class="modal-actions">${button('day', 'Ver registros do dia', 'button subtle', `data-date="${date}"`)}</div>`, true);
+  showModal(esc(longDate(date)), `<p class="field-help">${past ? 'Dias passados mostram apenas o tempo feito. As metas anteriores não ficam armazenadas.' : current ? 'Restante ao abrir este detalhe, incluindo a sessão em andamento. Feito mostra apenas o tempo já salvo.' : 'Planejado é a meta do dia. Feito inclui todo o tempo registrado, mesmo acima da meta.'}</p><div class="day-table rhythm-table"><div class="table-head"><span>Tarefa</span><span>${current ? 'Restante' : 'Planejado'}</span><span>Feito</span></div>${rows.map(({ task, value }, i) => `<div><span>${colorDot(task.color)}${esc(task.name)}</span><span>${past ? '—' : duration(current ? live[i].remaining : value.targets[index], true)}</span><span>${duration(value.actual[index], true)}</span></div>`).join('')}</div>${rows.length ? '' : '<p class="empty-day">Adicione uma tarefa para planejar sua semana.</p>'}<p class="field-help">Tarefas ativas · tempos em horas:minutos:segundos.</p><div class="modal-actions">${button('day', 'Ver registros do dia', 'button subtle', `data-date="${date}"`)}</div>`, true);
 }
 function dayDetails(date) {
   const entries = data.entries.filter(e => e.date === date);
